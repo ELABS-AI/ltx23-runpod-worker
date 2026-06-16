@@ -1,2 +1,3 @@
-runpod
-requests>=2.31.0
+# LTX-2.3 RunPod Worker Dependencies
+# All core deps provided by runpod/worker-comfyui base image (runpod, requests, etc.)
+# LTX custom nodes installed separately via git clone + pip install

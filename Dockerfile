@@ -1,30 +1,33 @@
-FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
+# A3: RunPod worker-comfyui base + LTX-2.3 custom nodes + handler
+# Uses the proven worker-comfyui infrastructure (ComfyUI on 8188, handler as main process)
+# Models are downloaded to network volume by download_models.sh on first boot
+
+FROM runpod/worker-comfyui:5.8.5-base
 
 LABEL maintainer="E-Labs AI Studio" description="LTX 2.3 video generation — T2V + I2V on RunPod"
 
-ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# ── LTX-2.3 Custom Nodes ──────────────────────────────────────────────────
+# Required for LTX-2.3 workflow nodes (audio VAE, upscaler, conditioning, etc.)
+RUN git clone https://github.com/Lightricks/ComfyUI-LTXVideo \
+    /comfyui/custom_nodes/ComfyUI-LTXVideo && \
+    cd /comfyui/custom_nodes/ComfyUI-LTXVideo && \
+    pip install -r requirements.txt && \
+    echo "LTX-2.3 custom nodes installed"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
-    python3-venv \
-    curl \
-    wget \
-    ffmpeg \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+# ── Handler ────────────────────────────────────────────────────────────────
+# Replace default handler with LTX-2.3 workflow builder
+# Accepts prompt/width/height/duration/fps/seed/image_url
+# Builds correct two-pass T2V or I2V workflow, submits to local ComfyUI
+COPY handler.py /handler.py
 
-WORKDIR /workspace
+# ── Model Download Script ─────────────────────────────────────────────────
+# Downloads models to network volume at /workspace/ComfyUI/models/
+# Runs on first boot (handled by start.sh or manually triggered)
+COPY download_models.sh /download_models.sh
+RUN chmod +x /download_models.sh
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY handler.py .
-COPY download_models.sh .
-
-# Models download to persistent network volume at /workspace
-# Requires HUGGINGFACE_ACCESS_TOKEN env var for private model access
-
-CMD ["python3", "-u", "handler.py"]
+# start.sh from the base image handles:
+#   1. GPU pre-flight check
+#   2. Starting ComfyUI on port 8188 (background)
+#   3. Starting /handler.py as the main process (foreground)
+# Our handler.py replaces the default, building LTX workflows on the fly.
